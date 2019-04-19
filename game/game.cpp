@@ -1,133 +1,121 @@
-//=========================================================
-// This is just the starting point for your final project.
-// You are expected to modify and add classes/files as needed.
-// The code below is the original code for our first graphics
-// project (moving the little green ship). 
-//========================================================
+//============================================================
+// Andrew Hartman
+// April 19, 2019
+// Final Project
+// Description: Space Invaders
+//============================================================
+
 #include <iostream>
 using namespace std;
 #include <SFML/Graphics.hpp>
 using namespace sf; 
-
-//============================================================
-// YOUR HEADER WITH YOUR NAME GOES HERE. PLEASE DO NOT FORGET THIS
-//============================================================
-
-// note: a Sprite represents an image on screen. A sprite knows and remembers its own position
-// ship.move(offsetX, offsetY) adds offsetX, offsetY to 
-// the current position of the ship. 
-// x is horizontal, y is vertical. 
-// 0,0 is in the UPPER LEFT of the screen, y increases DOWN the screen
-void moveShip(Sprite& ship)
-{
-	const float DISTANCE = 5.0;
-
-	if (Keyboard::isKeyPressed(Keyboard::Left))
-	{
-		// left arrow is pressed: move our ship left 5 pixels
-		// 2nd parm is y direction. We don't want to move up/down, so it's zero.
-		ship.move(-DISTANCE, 0);
-	}
-	else if (Keyboard::isKeyPressed(Keyboard::Right))
-	{
-		// right arrow is pressed: move our ship right 5 pixels
-		ship.move(DISTANCE, 0);
-	}
-}
-
-
+#include "Collision.h"
+#include "EnemyMgr.h"
+#include "GameMgr.h"
+#include "MissileMgr.h"
+#include "Ship.h"
 
 int main()
 {
+	int resetTime = 0;
 	const int WINDOW_WIDTH = 800;
 	const int WINDOW_HEIGHT = 600;
-
 	RenderWindow window(VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "aliens!");
-	// Limit the framerate to 60 frames per second
 	window.setFramerateLimit(60);
 
-	// load textures from file into memory. This doesn't display anything yet.
-	// Notice we do this *before* going into animation loop.
-	Texture shipTexture;
-	if (!shipTexture.loadFromFile("ship.png"))
-	{
-		cout << "Unable to load ship texture!" << endl;
-		exit(EXIT_FAILURE);
-	}
+	//load and set background texture
 	Texture starsTexture;
 	if (!starsTexture.loadFromFile("stars.jpg"))
 	{
 		cout << "Unable to load stars texture!" << endl;
 		exit(EXIT_FAILURE);
 	}
-
-	// A sprite is a thing we can draw and manipulate on the screen.
-	// We have to give it a "texture" to specify what it looks like
-
 	Sprite background;
 	background.setTexture(starsTexture);
-	// The texture file is 640x480, so scale it up a little to cover 800x600 window
 	background.setScale(1.5, 1.5);
 
-	// create sprite and texture it
-	Sprite ship;
-	ship.setTexture(shipTexture);
+	GameMgr gameMgr(window);
+	Ship ship(Vector2f(375, 550));
+	MissileMgr missileMgr;
+	EnemyMgr enemyMgr;
+	Collision collision;
 
-
-	// initial position of the ship will be approx middle of screen
-	float shipX = window.getSize().x / 2.0f;
-	float shipY = window.getSize().y / 2.0f;
-	ship.setPosition(shipX, shipY);
-
+	//put in enemies
+	enemyMgr.setupEnemies(gameMgr, 10);
 
 	while (window.isOpen())
 	{
-		// check all the window's events that were triggered since the last iteration of the loop
-		// For now, we just need this so we can click on the window and close it
 		Event event;
-
-		while (window.pollEvent(event))
-		{
-			// "close requested" event: we close the window
-			if (event.type == Event::Closed)
-				window.close();
-			else if (event.type == Event::KeyPressed)
-			{
-				if (event.key.code == Keyboard::Space)
-				{
-					// handle space bar
-				}
-				
-			}
-		}
-
-		//===========================================================
-		// Everything from here to the end of the loop is where you put your
-		// code to produce ONE frame of the animation. The next iteration of the loop will
-		// render the next frame, and so on. All this happens ~ 60 times/second.
-		//===========================================================
-
-		// draw background first, so everything that's drawn later 
-		// will appear on top of background
 		window.draw(background);
 
-		moveShip(ship);
+		if (gameMgr.getIsPlayingGame() && !gameMgr.getLost() && !gameMgr.getWon())                                   //make sure game is being played and they havent won or lost
+		{
+			gameMgr.drawGameUI(window);
 
-		// draw the ship on top of background 
-		// (the ship from previous frame was erased when we drew background)
-		window.draw(ship);
+			if (enemyMgr.getEnemies().empty() && (gameMgr.getLevelFailed() || gameMgr.getLevelCompleted()))          //if all the enemies are gone
+			{
+				enemyMgr.setupEnemies(gameMgr, 10);
+				resetTime = static_cast<int>(time(NULL)) + 2;
+				missileMgr.clearMissiles();
+			}
+			while (window.pollEvent(event))
+			{
+				if (event.type == Event::Closed)
+					window.close();
+				else if (event.type == Event::KeyPressed)
+				{
+					if (event.key.code == Keyboard::Space)                                                              //shoot when space is pressed
+					{
+						missileMgr.addShipMissile(Vector2f(ship.getPosition().x + 7, ship.getPosition().y + 6));
+					}
+				}
+			}
+			ship.move();
+			window.draw(ship.draw());
+			enemyMgr.drawEnemies(window);
 
+			if (resetTime <= time(0))
+			{
+				enemyMgr.moveEnemies(gameMgr, missileMgr, ship);
+				missileMgr.moveMissiles(gameMgr);
+			}
 
-		// end the current frame; this makes everything that we have 
-		// already "drawn" actually show up on the screen
+			enemyMgr.drawEnemies(window);
+			missileMgr.drawMissiles(window);
+
+			collision.checkEnemyCollisions(enemyMgr.getEnemies(), missileMgr.getShipMissiles(), gameMgr);       //check for missile enemy collision
+			if (collision.checkShipCollisions(ship, missileMgr.getAlienMissiles(), gameMgr))                    //check for bomb hitting ship
+			{
+				gameMgr.setLevelFailed(true);
+				enemyMgr.clearEnemies();
+			}
+		}
+		else if (gameMgr.getLost() || gameMgr.getWon())                                                                 //if won or lost
+		{
+			while (window.pollEvent(event))
+			{
+				if (event.type == Event::Closed)
+					window.close();
+			}
+			gameMgr.drawGameUI(window);
+			gameMgr.drawGameoverUI(window);
+		}
+		else
+		{
+			while (window.pollEvent(event))
+			{
+				if (event.type == Event::Closed)
+					window.close();
+				else if (event.type == Event::MouseButtonReleased)
+				{
+					Vector2f mouse = window.mapPixelToCoords(Mouse::getPosition(window));
+					gameMgr.handleMouseUp(mouse);
+				}
+			}
+			gameMgr.drawStartUI(window);
+		}
 		window.display();
-
-		// At this point the frame we have built is now visible on screen.
-		// Now control will go back to the top of the animation loop
-		// to build the next frame. Since we begin by drawing the
-		// background, each frame is rebuilt from scratch.
-
-	} // end body of animation loop
+	}
 
 	return 0;
 }
